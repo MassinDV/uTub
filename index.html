@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>مشغل صوت احترافي</title>
+    <title>مشغل الصوت والفيديو</title>
     <style>
         * {
             margin: 0;
@@ -37,6 +37,8 @@
             justify-content: space-between;
             align-items: center;
             margin-bottom: 25px;
+            flex-wrap: wrap;
+            gap: 10px;
         }
         
         .player-title {
@@ -51,7 +53,6 @@
         .player-title .icon {
             width: 36px;
             height: 36px;
-            background: linear-gradient(135deg, #ff0055, #ff6b35);
             border-radius: 10px;
             display: flex;
             align-items: center;
@@ -59,14 +60,55 @@
             font-size: 18px;
         }
         
-        .badge-time {
+        .icon-audio {
+            background: linear-gradient(135deg, #ff0055, #ff6b35);
+        }
+        
+        .icon-video {
+            background: linear-gradient(135deg, #0055ff, #35b5ff);
+        }
+        
+        .mode-badge {
             font-size: 12px;
             font-weight: 400;
-            color: #888;
-            background: rgba(255, 255, 255, 0.06);
             padding: 6px 14px;
             border-radius: 20px;
             border: 1px solid rgba(255, 255, 255, 0.06);
+        }
+        
+        .mode-badge.audio {
+            color: #ff6b35;
+            background: rgba(255, 107, 53, 0.1);
+            border-color: rgba(255, 107, 53, 0.2);
+        }
+        
+        .mode-badge.video {
+            color: #35b5ff;
+            background: rgba(53, 181, 255, 0.1);
+            border-color: rgba(53, 181, 255, 0.2);
+        }
+        
+        /* شاشة الفيديو (للحالة المرئية) */
+        .video-screen {
+            position: relative;
+            width: 100%;
+            aspect-ratio: 16/9;
+            background: #000;
+            border-radius: 16px;
+            overflow: hidden;
+            margin-bottom: 20px;
+            display: none;
+            border: 1px solid rgba(255, 255, 255, 0.05);
+        }
+        
+        .video-screen.active {
+            display: block;
+        }
+        
+        .video-screen iframe {
+            width: 100%;
+            height: 100%;
+            border: none;
         }
         
         /* شريط التقدم */
@@ -216,6 +258,8 @@
             align-items: center;
             padding-top: 20px;
             border-top: 1px solid rgba(255, 255, 255, 0.05);
+            flex-wrap: wrap;
+            gap: 12px;
         }
         
         .controls-bottom .time-display {
@@ -233,6 +277,7 @@
             display: flex;
             align-items: center;
             gap: 18px;
+            flex-wrap: wrap;
         }
         
         .controls-right button {
@@ -300,17 +345,42 @@
             opacity: 0.3;
         }
         
-        /* رسالة الخطأ */
-        .error-message {
-            color: #ff4444;
-            text-align: center;
-            padding: 15px;
-            background: rgba(255, 68, 68, 0.08);
+        /* أزرار تبديل الوضع */
+        .mode-switch {
+            display: flex;
+            gap: 8px;
+            background: rgba(255, 255, 255, 0.04);
+            padding: 4px;
             border-radius: 12px;
-            border: 1px solid rgba(255, 68, 68, 0.15);
-            margin-top: 10px;
-            font-size: 14px;
-            display: none;
+            border: 1px solid rgba(255, 255, 255, 0.04);
+        }
+        
+        .mode-switch button {
+            background: none;
+            border: none;
+            color: #666;
+            padding: 6px 14px;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 13px;
+            font-weight: 500;
+            transition: all 0.3s ease;
+        }
+        
+        .mode-switch button:hover {
+            color: #aaa;
+        }
+        
+        .mode-switch button.active-audio {
+            background: linear-gradient(135deg, #ff0055, #ff6b35);
+            color: #fff;
+            box-shadow: 0 4px 15px rgba(255, 0, 85, 0.2);
+        }
+        
+        .mode-switch button.active-video {
+            background: linear-gradient(135deg, #0055ff, #35b5ff);
+            color: #fff;
+            box-shadow: 0 4px 15px rgba(0, 85, 255, 0.2);
         }
         
         /* حالة التحميل */
@@ -340,6 +410,27 @@
         
         .hidden {
             display: none !important;
+        }
+        
+        .error-message {
+            color: #ff4444;
+            text-align: center;
+            padding: 15px;
+            background: rgba(255, 68, 68, 0.08);
+            border-radius: 12px;
+            border: 1px solid rgba(255, 68, 68, 0.15);
+            margin-top: 10px;
+            font-size: 14px;
+            display: none;
+        }
+        
+        /* حاوية YouTube المخفية للصوت */
+        #youtubeAudioPlayer {
+            position: absolute;
+            width: 1px;
+            height: 1px;
+            opacity: 0;
+            pointer-events: none;
         }
         
         /* استجابة للجوال */
@@ -378,8 +469,8 @@
             
             .controls-bottom {
                 flex-direction: column;
-                gap: 15px;
                 align-items: stretch;
+                gap: 12px;
             }
             
             .controls-right {
@@ -390,9 +481,14 @@
                 width: 80px;
             }
             
-            .badge-time {
-                font-size: 10px;
+            .mode-switch button {
+                font-size: 12px;
                 padding: 4px 10px;
+            }
+            
+            .video-screen {
+                border-radius: 10px;
+                margin-bottom: 15px;
             }
         }
     </style>
@@ -403,10 +499,21 @@
         <!-- رأس المشغل -->
         <div class="player-header">
             <div class="player-title">
-                <span class="icon">🎵</span>
-                <span>مشغل الصوت</span>
+                <span class="icon" id="modeIcon">🎵</span>
+                <span id="modeTitle">مشغل الصوت</span>
             </div>
-            <div class="badge-time" id="badgeTime">⏱️ تشغيل مباشر</div>
+            <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;">
+                <div class="mode-switch">
+                    <button id="audioModeBtn" class="active-audio">🎵 صوت</button>
+                    <button id="videoModeBtn">🎬 فيديو</button>
+                </div>
+                <div class="mode-badge audio" id="modeBadge">🎧 وضع الصوت</div>
+            </div>
+        </div>
+        
+        <!-- شاشة الفيديو -->
+        <div class="video-screen" id="videoScreen">
+            <iframe id="videoIframe" src="" allow="autoplay; encrypted-media" allowfullscreen></iframe>
         </div>
         
         <!-- شريط التقدم -->
@@ -443,17 +550,17 @@
         <!-- حالة التحميل -->
         <div class="loading-state" id="loadingIndicator">
             <div class="spinner"></div>
-            <span>جاري تحميل الصوت...</span>
+            <span id="loadingText">جاري تحميل الصوت...</span>
         </div>
         
         <!-- رسالة الخطأ -->
         <div class="error-message" id="errorMessage">
-            ⚠️ حدث خطأ في تحميل الفيديو. يرجى المحاولة مرة أخرى.
+            ⚠️ حدث خطأ في تحميل الفيديو.
         </div>
     </div>
 
-    <!-- حاوية مشغل YouTube المخفية -->
-    <div id="youtubePlayer" style="position:absolute;width:1px;height:1px;opacity:0;pointer-events:none;"></div>
+    <!-- حاوية مشغل YouTube المخفية للصوت -->
+    <div id="youtubeAudioPlayer"></div>
 
     <script>
         // --- قراءة المعاملات ---
@@ -468,6 +575,9 @@
         if (isNaN(startTime)) startTime = 0;
         if (isNaN(endTime)) endTime = 0;
         if (endTime > 0 && endTime <= startTime) endTime = 0;
+        
+        // --- وضع التشغيل (audio/video) ---
+        let currentMode = 'audio'; // 'audio' أو 'video'
         
         // --- متغيرات المشغل ---
         let player = null;
@@ -491,9 +601,16 @@
         const currentTimeLabel = document.getElementById('currentTimeLabel');
         const endTimeLabel = document.getElementById('endTimeLabel');
         const loadingIndicator = document.getElementById('loadingIndicator');
+        const loadingText = document.getElementById('loadingText');
         const errorMessage = document.getElementById('errorMessage');
-        const badgeTime = document.getElementById('badgeTime');
         const container = document.getElementById('playerContainer');
+        const modeBadge = document.getElementById('modeBadge');
+        const modeIcon = document.getElementById('modeIcon');
+        const modeTitle = document.getElementById('modeTitle');
+        const audioModeBtn = document.getElementById('audioModeBtn');
+        const videoModeBtn = document.getElementById('videoModeBtn');
+        const videoScreen = document.getElementById('videoScreen');
+        const videoIframe = document.getElementById('videoIframe');
         
         // --- دوال مساعدة ---
         function formatTime(seconds) {
@@ -525,9 +642,32 @@
             errorMessage.style.display = 'none';
         }
         
+        function updateModeUI(mode) {
+            if (mode === 'audio') {
+                modeBadge.textContent = '🎧 وضع الصوت';
+                modeBadge.className = 'mode-badge audio';
+                modeIcon.textContent = '🎵';
+                modeIcon.className = 'icon icon-audio';
+                modeTitle.textContent = 'مشغل الصوت';
+                audioModeBtn.className = 'active-audio';
+                videoModeBtn.className = '';
+                videoScreen.classList.remove('active');
+                loadingText.textContent = 'جاري تحميل الصوت...';
+            } else {
+                modeBadge.textContent = '🎬 وضع الفيديو';
+                modeBadge.className = 'mode-badge video';
+                modeIcon.textContent = '🎬';
+                modeIcon.className = 'icon icon-video';
+                modeTitle.textContent = 'مشغل الفيديو';
+                videoModeBtn.className = 'active-video';
+                audioModeBtn.className = '';
+                videoScreen.classList.add('active');
+                loadingText.textContent = 'جاري تحميل الفيديو...';
+            }
+        }
+        
         // --- تهيئة المشغل ---
         function initPlayer() {
-            // تحميل API يوتيوب
             if (window.YT && window.YT.Player) {
                 createPlayer();
                 return;
@@ -542,7 +682,8 @@
         }
         
         function createPlayer() {
-            player = new YT.Player('youtubePlayer', {
+            // إنشاء مشغل الصوت المخفي
+            player = new YT.Player('youtubeAudioPlayer', {
                 height: '1',
                 width: '1',
                 videoId: videoId,
@@ -572,20 +713,14 @@
             loadingIndicator.classList.add('hidden');
             hideError();
             
+            // تحديث واجهة الفيديو
+            if (currentMode === 'video') {
+                const videoUrl = `https://www.youtube.com/embed/${videoId}?autoplay=1&controls=0&modestbranding=1&rel=0&showinfo=0&iv_load_policy=3&playsinline=1&start=${startTime}&enablejsapi=1`;
+                videoIframe.src = videoUrl;
+            }
+            
             // عرض التوقيت
-            if (startTime > 0) {
-                badgeTime.textContent = '▶️ يبدأ من ' + formatTime(startTime);
-                badgeTime.style.color = '#44ff88';
-            }
-            if (endTime > 0) {
-                badgeTime.textContent += ' ⏹️ ينتهي عند ' + formatTime(endTime);
-                badgeTime.style.color = '#ff8844';
-                endTimeLabel.textContent = formatTime(endTime);
-            }
-            if (startTime === 0 && endTime === 0) {
-                badgeTime.textContent = '🎵 تشغيل مباشر';
-                badgeTime.style.color = '#888';
-            }
+            updateBadge();
             
             // بدء التشغيل
             if (startTime > 0) {
@@ -604,6 +739,19 @@
             
             updateTime();
             updateProgressBar();
+        }
+        
+        function updateBadge() {
+            let text = '';
+            if (startTime > 0) text += '▶️ ' + formatTime(startTime);
+            if (endTime > 0) text += (text ? ' ⏹️ ' : '') + formatTime(endTime);
+            if (!text) text = '🎵 تشغيل مباشر';
+            // تحديث الشارة في الرأس
+            const badge = document.querySelector('.mode-badge');
+            if (badge) {
+                badge.textContent = text;
+                badge.style.color = endTime > 0 ? '#ff8844' : (startTime > 0 ? '#44ff88' : '#888');
+            }
         }
         
         function onPlayerStateChange(event) {
@@ -686,6 +834,33 @@
             } catch(e) {
                 console.error('خطأ:', e);
             }
+        }
+        
+        // --- تبديل الوضع ---
+        function switchMode(mode) {
+            if (mode === currentMode) return;
+            currentMode = mode;
+            updateModeUI(mode);
+            
+            // إعادة تهيئة المشغل بالوضع الجديد
+            if (mode === 'video') {
+                // إظهار شاشة الفيديو
+                const videoUrl = `https://www.youtube.com/embed/${videoId}?autoplay=1&controls=0&modestbranding=1&rel=0&showinfo=0&iv_load_policy=3&playsinline=1&start=${startTime}&enablejsapi=1`;
+                videoIframe.src = videoUrl;
+                videoScreen.classList.add('active');
+                // تصغير مشغل الصوت
+                document.getElementById('youtubeAudioPlayer').style.width = '1px';
+                document.getElementById('youtubeAudioPlayer').style.height = '1px';
+            } else {
+                // إخفاء شاشة الفيديو
+                videoScreen.classList.remove('active');
+                videoIframe.src = '';
+                document.getElementById('youtubeAudioPlayer').style.width = '1px';
+                document.getElementById('youtubeAudioPlayer').style.height = '1px';
+            }
+            
+            // تحديث الشارة
+            updateBadge();
         }
         
         // --- ربط الأزرار ---
@@ -780,14 +955,20 @@
             }
         });
         
-        // ملء الشاشة
+        // ملء الشاشة (فقط في وضع الفيديو)
         fullscreenBtn.addEventListener('click', function() {
-            if (!document.fullscreenElement) {
-                container.requestFullscreen?.() || container.webkitRequestFullscreen?.();
-            } else {
-                document.exitFullscreen?.() || document.webkitExitFullscreen?.();
+            if (currentMode === 'video') {
+                if (!document.fullscreenElement) {
+                    container.requestFullscreen?.() || container.webkitRequestFullscreen?.();
+                } else {
+                    document.exitFullscreen?.() || document.webkitExitFullscreen?.();
+                }
             }
         });
+        
+        // أزرار تبديل الوضع
+        audioModeBtn.addEventListener('click', () => switchMode('audio'));
+        videoModeBtn.addEventListener('click', () => switchMode('video'));
         
         // اختصارات لوحة المفاتيح
         document.addEventListener('keydown', function(e) {
@@ -818,15 +999,8 @@
             }
         });
         
-        // إخفاء التحكم تلقائياً في وضع ملء الشاشة
+        // إخفاء التحكم تلقائياً
         let controlsTimeout;
-        document.addEventListener('fullscreenchange', () => {
-            if (document.fullscreenElement) {
-                document.querySelector('.controls-main').style.opacity = '1';
-                document.querySelector('.controls-bottom').style.opacity = '1';
-            }
-        });
-        
         container.addEventListener('mousemove', function() {
             const mainControls = document.querySelector('.controls-main');
             const bottomControls = document.querySelector('.controls-bottom');
@@ -842,9 +1016,13 @@
         });
         
         // --- بدء التشغيل ---
-        console.log('🎵 مشغل الصوت الاحترافي');
+        console.log('🎵 مشغل الصوت والفيديو الاحترافي');
         console.log('📹 الفيديو:', videoId);
         console.log('⏱️ البدء:', startTime, 'النهاية:', endTime);
+        console.log('🎯 الوضع الافتراضي:', currentMode);
+        
+        // تحديث واجهة البداية
+        updateModeUI('audio');
         initPlayer();
     </script>
 
