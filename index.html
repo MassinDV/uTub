@@ -1,0 +1,505 @@
+<!DOCTYPE html>
+<html lang="ar">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>مشغل فيديو بدون إعلانات</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            background: #0a0a0a;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            font-family: 'Segoe UI', Arial, sans-serif;
+            padding: 20px;
+        }
+        .player-container {
+            position: relative;
+            width: 100%;
+            max-width: 800px;
+            aspect-ratio: 16/9;
+            background: #000;
+            border-radius: 16px;
+            overflow: hidden;
+            box-shadow: 0 30px 80px rgba(0,0,0,0.9);
+        }
+        .background-layer {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            z-index: 1;
+            pointer-events: none;
+        }
+        .background-layer img {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            opacity: 0.2;
+        }
+        .audio-player {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            z-index: 2;
+        }
+        .audio-player iframe {
+            width: 100%;
+            height: 100%;
+            border: none;
+            opacity: 0;
+            pointer-events: none;
+        }
+        .custom-controls {
+            position: absolute;
+            bottom: 30px;
+            left: 50%;
+            transform: translateX(-50%);
+            z-index: 3;
+            display: flex;
+            gap: 15px;
+            align-items: center;
+            background: rgba(0,0,0,0.8);
+            padding: 12px 25px;
+            border-radius: 50px;
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(255,255,255,0.1);
+            flex-wrap: wrap;
+            justify-content: center;
+        }
+        .custom-controls button {
+            background: none;
+            border: none;
+            color: white;
+            font-size: 20px;
+            cursor: pointer;
+            transition: all 0.3s;
+            padding: 5px 10px;
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .custom-controls button:hover {
+            background: rgba(255,255,255,0.1);
+            transform: scale(1.1);
+        }
+        .custom-controls input[type="range"] {
+            width: 80px;
+            height: 4px;
+            -webkit-appearance: none;
+            background: #555;
+            border-radius: 2px;
+            outline: none;
+            cursor: pointer;
+        }
+        .custom-controls input[type="range"]::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            width: 14px;
+            height: 14px;
+            border-radius: 50%;
+            background: #ff0000;
+            cursor: pointer;
+        }
+        .time-display {
+            color: #ccc;
+            font-size: 13px;
+            min-width: 100px;
+            text-align: center;
+            font-variant-numeric: tabular-nums;
+        }
+        .progress-container {
+            position: absolute;
+            bottom: 95px;
+            left: 50%;
+            transform: translateX(-50%);
+            z-index: 3;
+            width: 85%;
+            max-width: 600px;
+        }
+        .progress-bar {
+            width: 100%;
+            height: 5px;
+            -webkit-appearance: none;
+            background: #333;
+            border-radius: 3px;
+            outline: none;
+            cursor: pointer;
+        }
+        .progress-bar::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            width: 16px;
+            height: 16px;
+            border-radius: 50%;
+            background: #ff0000;
+            cursor: pointer;
+        }
+        .time-labels {
+            display: flex;
+            justify-content: space-between;
+            color: #888;
+            font-size: 12px;
+            margin-top: 5px;
+        }
+        .badge {
+            position: absolute;
+            top: 20px;
+            z-index: 3;
+            background: rgba(0,0,0,0.8);
+            padding: 6px 14px;
+            border-radius: 20px;
+            font-size: 12px;
+            backdrop-filter: blur(10px);
+            font-weight: bold;
+        }
+        .badge-start { left: 20px; color: #44ff44; border: 1px solid rgba(68,255,68,0.3); }
+        .badge-end { right: 20px; color: #ff4444; border: 1px solid rgba(255,68,68,0.3); }
+        @media (max-width: 600px) {
+            .custom-controls { padding: 10px 15px; gap: 8px; bottom: 15px; }
+            .custom-controls input[type="range"] { width: 60px; }
+            .custom-controls button { width: 35px; height: 35px; font-size: 16px; }
+            .time-display { font-size: 11px; min-width: 80px; }
+            .progress-container { bottom: 80px; width: 90%; }
+            .badge { font-size: 10px; padding: 4px 10px; top: 10px; }
+        }
+    </style>
+</head>
+<body>
+    <div class="player-container" id="playerContainer">
+        <!-- خلفية -->
+        <div class="background-layer">
+            <img src="https://images.unsplash.com/photo-1541701494587-cb58502866ab?w=800" alt="خلفية">
+        </div>
+        
+        <!-- مشغل الصوت -->
+        <div class="audio-player">
+            <iframe id="youtubePlayer" src="" allow="autoplay; encrypted-media" allowfullscreen></iframe>
+        </div>
+        
+        <!-- الشارات -->
+        <div id="badgeStart" class="badge badge-start" style="display:none;">▶️ يبدأ</div>
+        <div id="badgeEnd" class="badge badge-end" style="display:none;">⏹️ ينتهي</div>
+        
+        <!-- شريط التقدم -->
+        <div class="progress-container">
+            <input type="range" id="progressBar" class="progress-bar" min="0" max="100" value="0">
+            <div class="time-labels">
+                <span id="currentTimeLabel">00:00</span>
+                <span id="endTimeLabel">--:--</span>
+            </div>
+        </div>
+        
+        <!-- عناصر التحكم -->
+        <div class="custom-controls">
+            <button id="playBtn" title="تشغيل/إيقاف">▶</button>
+            <button id="rewindBtn" title="رجوع 10 ثواني">⏪</button>
+            <button id="forwardBtn" title="تقديم 10 ثواني">⏩</button>
+            <button id="muteBtn" title="كتم الصوت">🔊</button>
+            <input type="range" id="volumeSlider" min="0" max="1" step="0.05" value="1">
+            <span class="time-display" id="timeDisplay">00:00 / 00:00</span>
+        </div>
+    </div>
+
+    <script>
+        // --- قراءة المعاملات من الرابط ---
+        const params = new URLSearchParams(window.location.search);
+        let videoId = params.get('v') || params.get('url') || '7NyQQOS9vrI';
+        
+        // استخراج ID من رابط كامل
+        const match = videoId.match(/(?:youtube\.com\/watch\?v=|youtu\.be\/)([^&]+)/);
+        if (match) videoId = match[1];
+        
+        // قراءة الوقت
+        let startTime = parseInt(params.get('t')) || parseInt(params.get('start')) || 0;
+        let endTime = parseInt(params.get('end')) || 0;
+        
+        // التأكد من صحة الأرقام
+        if (isNaN(startTime)) startTime = 0;
+        if (isNaN(endTime)) endTime = 0;
+        if (endTime > 0 && endTime <= startTime) endTime = 0;
+        
+        // --- تهيئة المشغل ---
+        const iframe = document.getElementById('youtubePlayer');
+        let player;
+        let isPlaying = false;
+        let isMuted = false;
+        let isDragging = false;
+        let volumeBeforeMute = 1;
+        
+        // تحميل API يوتيوب
+        function loadYouTubeAPI() {
+            return new Promise((resolve) => {
+                if (window.YT && window.YT.Player) {
+                    resolve();
+                    return;
+                }
+                const tag = document.createElement('script');
+                tag.src = 'https://www.youtube.com/iframe_api';
+                const firstScriptTag = document.getElementsByTagName('script')[0];
+                firstScriptTag.parentNode.insertBefore(tag, firstScriptTag);
+                
+                window.onYouTubeIframeAPIReady = resolve;
+            });
+        }
+        
+        function formatTime(seconds) {
+            if (!seconds || isNaN(seconds) || seconds < 0) return '00:00';
+            seconds = Math.floor(seconds);
+            const mins = Math.floor(seconds / 60);
+            const secs = seconds % 60;
+            return String(mins).padStart(2, '0') + ':' + String(secs).padStart(2, '0');
+        }
+        
+        async function initPlayer() {
+            await loadYouTubeAPI();
+            
+            // عرض الشارات
+            if (startTime > 0) {
+                document.getElementById('badgeStart').textContent = '▶️ يبدأ عند ' + formatTime(startTime);
+                document.getElementById('badgeStart').style.display = 'block';
+            }
+            if (endTime > 0) {
+                document.getElementById('badgeEnd').textContent = '⏹️ ينتهي عند ' + formatTime(endTime);
+                document.getElementById('badgeEnd').style.display = 'block';
+                document.getElementById('endTimeLabel').textContent = formatTime(endTime);
+            }
+            
+            // إنشاء المشغل
+            player = new YT.Player('youtubePlayer', {
+                videoId: videoId,
+                playerVars: {
+                    autoplay: 1,
+                    controls: 0,
+                    modestbranding: 1,
+                    rel: 0,
+                    showinfo: 0,
+                    iv_load_policy: 3,
+                    playsinline: 1,
+                    start: startTime,
+                    enablejsapi: 1
+                },
+                events: {
+                    onReady: onPlayerReady,
+                    onStateChange: onPlayerStateChange,
+                    onError: onPlayerError
+                }
+            });
+        }
+        
+        function onPlayerReady(event) {
+            if (startTime > 0) {
+                event.target.seekTo(startTime, true);
+            }
+            event.target.playVideo();
+            isPlaying = true;
+            document.getElementById('playBtn').textContent = '⏸';
+            
+            // تحديث الوقت
+            updateTime();
+            setInterval(updateTime, 500);
+            setInterval(updateProgressBar, 1000);
+        }
+        
+        function onPlayerStateChange(event) {
+            if (event.data == YT.PlayerState.PLAYING) {
+                document.getElementById('playBtn').textContent = '⏸';
+                isPlaying = true;
+            } else if (event.data == YT.PlayerState.PAUSED || event.data == YT.PlayerState.ENDED) {
+                document.getElementById('playBtn').textContent = '▶';
+                isPlaying = false;
+            }
+            
+            // التحقق من وقت النهاية
+            if (endTime > 0 && player && player.getCurrentTime) {
+                const current = player.getCurrentTime();
+                if (current >= endTime) {
+                    player.pauseVideo();
+                    document.getElementById('playBtn').textContent = '▶';
+                    isPlaying = false;
+                    document.getElementById('timeDisplay').textContent = '⏹️ انتهى المقطع';
+                }
+            }
+        }
+        
+        function onPlayerError(event) {
+            console.error('خطأ:', event.data);
+            document.getElementById('timeDisplay').textContent = '⚠️ خطأ في التحميل';
+        }
+        
+        function updateTime() {
+            if (player && player.getCurrentTime) {
+                const current = player.getCurrentTime();
+                const duration = player.getDuration();
+                
+                // التحقق من النهاية
+                if (endTime > 0 && current >= endTime) {
+                    player.pauseVideo();
+                    document.getElementById('playBtn').textContent = '▶';
+                    isPlaying = false;
+                    document.getElementById('timeDisplay').textContent = '⏹️ انتهى المقطع';
+                    return;
+                }
+                
+                if (duration) {
+                    document.getElementById('timeDisplay').textContent = 
+                        formatTime(current) + ' / ' + formatTime(duration);
+                }
+            }
+        }
+        
+        function updateProgressBar() {
+            if (player && player.getCurrentTime && !isDragging) {
+                const current = player.getCurrentTime();
+                const duration = player.getDuration();
+                if (duration && duration > 0) {
+                    const progress = Math.min((current / duration) * 100, 100);
+                    document.getElementById('progressBar').value = progress;
+                    document.getElementById('currentTimeLabel').textContent = formatTime(current);
+                }
+            }
+        }
+        
+        // --- ربط الأزرار ---
+        document.getElementById('playBtn').addEventListener('click', function() {
+            if (isPlaying) {
+                player.pauseVideo();
+                this.textContent = '▶';
+                isPlaying = false;
+            } else {
+                // التحقق من النهاية
+                if (endTime > 0 && player.getCurrentTime() >= endTime) {
+                    player.seekTo(startTime || 0, true);
+                }
+                player.playVideo();
+                this.textContent = '⏸';
+                isPlaying = true;
+            }
+        });
+        
+        document.getElementById('rewindBtn').addEventListener('click', function() {
+            if (player && player.getCurrentTime) {
+                let newTime = player.getCurrentTime() - 10;
+                if (newTime < (startTime || 0)) newTime = startTime || 0;
+                player.seekTo(newTime, true);
+            }
+        });
+        
+        document.getElementById('forwardBtn').addEventListener('click', function() {
+            if (player && player.getCurrentTime) {
+                let newTime = player.getCurrentTime() + 10;
+                if (endTime > 0 && newTime > endTime) newTime = endTime - 0.5;
+                player.seekTo(newTime, true);
+            }
+        });
+        
+        document.getElementById('muteBtn').addEventListener('click', function() {
+            if (isMuted) {
+                player.unMute();
+                this.textContent = '🔊';
+                isMuted = false;
+                document.getElementById('volumeSlider').value = volumeBeforeMute;
+                player.setVolume(volumeBeforeMute * 100);
+            } else {
+                volumeBeforeMute = parseFloat(document.getElementById('volumeSlider').value);
+                player.mute();
+                this.textContent = '🔇';
+                isMuted = true;
+                document.getElementById('volumeSlider').value = 0;
+            }
+        });
+        
+        document.getElementById('volumeSlider').addEventListener('input', function() {
+            const volume = parseFloat(this.value);
+            player.setVolume(volume * 100);
+            if (volume === 0) {
+                document.getElementById('muteBtn').textContent = '🔇';
+                isMuted = true;
+            } else {
+                document.getElementById('muteBtn').textContent = '🔊';
+                isMuted = false;
+                volumeBeforeMute = volume;
+            }
+        });
+        
+        // شريط التقدم
+        const progressBar = document.getElementById('progressBar');
+        progressBar.addEventListener('mousedown', () => { isDragging = true; });
+        progressBar.addEventListener('mouseup', function() {
+            isDragging = false;
+            const value = parseFloat(this.value);
+            const duration = player.getDuration();
+            if (duration && duration > 0) {
+                let seekTime = (value / 100) * duration;
+                if (endTime > 0 && seekTime > endTime) seekTime = endTime - 0.5;
+                if (seekTime < (startTime || 0)) seekTime = startTime || 0;
+                player.seekTo(seekTime, true);
+            }
+        });
+        progressBar.addEventListener('input', function() {
+            const duration = player.getDuration();
+            if (duration && duration > 0) {
+                const currentTime = (parseFloat(this.value) / 100) * duration;
+                document.getElementById('currentTimeLabel').textContent = formatTime(currentTime);
+            }
+        });
+        
+        // اختصارات
+        document.addEventListener('keydown', function(e) {
+            if (e.target.tagName === 'INPUT') return;
+            switch(e.key) {
+                case ' ':
+                case 'k':
+                    e.preventDefault();
+                    document.getElementById('playBtn').click();
+                    break;
+                case 'ArrowRight':
+                case 'l':
+                    e.preventDefault();
+                    document.getElementById('forwardBtn').click();
+                    break;
+                case 'ArrowLeft':
+                case 'j':
+                    e.preventDefault();
+                    document.getElementById('rewindBtn').click();
+                    break;
+                case 'm':
+                    document.getElementById('muteBtn').click();
+                    break;
+            }
+        });
+        
+        // إخفاء التحكم تلقائياً
+        let controlsTimeout;
+        const controls = document.querySelector('.custom-controls');
+        const progressContainer = document.querySelector('.progress-container');
+        
+        document.getElementById('playerContainer').addEventListener('mousemove', function() {
+            controls.style.opacity = '1';
+            progressContainer.style.opacity = '1';
+            clearTimeout(controlsTimeout);
+            controlsTimeout = setTimeout(() => {
+                if (isPlaying) {
+                    controls.style.opacity = '0.3';
+                    progressContainer.style.opacity = '0.3';
+                }
+            }, 3000);
+        });
+        
+        // بدء التشغيل
+        initPlayer().catch(err => {
+            console.error('خطأ في التهيئة:', err);
+            document.getElementById('timeDisplay').textContent = '⚠️ فشل التحميل';
+        });
+        
+        console.log('🎵 المشغل جاهز');
+        console.log('⏱️ البدء:', startTime, 'النهاية:', endTime);
+    </script>
+</body>
+</html>
