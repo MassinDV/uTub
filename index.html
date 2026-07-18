@@ -91,6 +91,10 @@
             background: rgba(255,255,255,0.1);
             transform: scale(1.1);
         }
+        .custom-controls button:disabled {
+            opacity: 0.3;
+            cursor: not-allowed;
+        }
         .custom-controls input[type="range"] {
             width: 80px;
             height: 4px;
@@ -161,6 +165,33 @@
         }
         .badge-start { left: 20px; color: #44ff44; border: 1px solid rgba(68,255,68,0.3); }
         .badge-end { right: 20px; color: #ff4444; border: 1px solid rgba(255,68,68,0.3); }
+        .loading {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            z-index: 5;
+            color: white;
+            font-size: 16px;
+            background: rgba(0,0,0,0.7);
+            padding: 20px 30px;
+            border-radius: 10px;
+            display: flex;
+            align-items: center;
+            gap: 15px;
+        }
+        .spinner {
+            width: 30px;
+            height: 30px;
+            border: 3px solid rgba(255,255,255,0.1);
+            border-top: 3px solid #ff0000;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
         @media (max-width: 600px) {
             .custom-controls { padding: 10px 15px; gap: 8px; bottom: 15px; }
             .custom-controls input[type="range"] { width: 60px; }
@@ -180,7 +211,13 @@
         
         <!-- مشغل الصوت -->
         <div class="audio-player">
-            <iframe id="youtubePlayer" src="" allow="autoplay; encrypted-media" allowfullscreen></iframe>
+            <div id="youtubePlayer"></div>
+        </div>
+        
+        <!-- تحميل -->
+        <div class="loading" id="loadingIndicator">
+            <div class="spinner"></div>
+            <span>جاري التحميل...</span>
         </div>
         
         <!-- الشارات -->
@@ -198,57 +235,40 @@
         
         <!-- عناصر التحكم -->
         <div class="custom-controls">
-            <button id="playBtn" title="تشغيل/إيقاف">▶</button>
-            <button id="rewindBtn" title="رجوع 10 ثواني">⏪</button>
-            <button id="forwardBtn" title="تقديم 10 ثواني">⏩</button>
-            <button id="muteBtn" title="كتم الصوت">🔊</button>
-            <input type="range" id="volumeSlider" min="0" max="1" step="0.05" value="1">
+            <button id="playBtn" title="تشغيل/إيقاف" disabled>▶</button>
+            <button id="rewindBtn" title="رجوع 10 ثواني" disabled>⏪</button>
+            <button id="forwardBtn" title="تقديم 10 ثواني" disabled>⏩</button>
+            <button id="muteBtn" title="كتم الصوت" disabled>🔊</button>
+            <input type="range" id="volumeSlider" min="0" max="1" step="0.05" value="1" disabled>
             <span class="time-display" id="timeDisplay">00:00 / 00:00</span>
         </div>
     </div>
 
     <script>
-        // --- قراءة المعاملات من الرابط ---
+        // --- قراءة المعاملات ---
         const params = new URLSearchParams(window.location.search);
         let videoId = params.get('v') || params.get('url') || '7NyQQOS9vrI';
         
-        // استخراج ID من رابط كامل
         const match = videoId.match(/(?:youtube\.com\/watch\?v=|youtu\.be\/)([^&]+)/);
         if (match) videoId = match[1];
         
-        // قراءة الوقت
         let startTime = parseInt(params.get('t')) || parseInt(params.get('start')) || 0;
         let endTime = parseInt(params.get('end')) || 0;
-        
-        // التأكد من صحة الأرقام
         if (isNaN(startTime)) startTime = 0;
         if (isNaN(endTime)) endTime = 0;
         if (endTime > 0 && endTime <= startTime) endTime = 0;
         
-        // --- تهيئة المشغل ---
-        const iframe = document.getElementById('youtubePlayer');
-        let player;
+        // --- متغيرات ---
+        let player = null;
         let isPlaying = false;
         let isMuted = false;
         let isDragging = false;
         let volumeBeforeMute = 1;
+        let playerReady = false;
+        let timeInterval = null;
+        let progressInterval = null;
         
-        // تحميل API يوتيوب
-        function loadYouTubeAPI() {
-            return new Promise((resolve) => {
-                if (window.YT && window.YT.Player) {
-                    resolve();
-                    return;
-                }
-                const tag = document.createElement('script');
-                tag.src = 'https://www.youtube.com/iframe_api';
-                const firstScriptTag = document.getElementsByTagName('script')[0];
-                firstScriptTag.parentNode.insertBefore(tag, firstScriptTag);
-                
-                window.onYouTubeIframeAPIReady = resolve;
-            });
-        }
-        
+        // --- دوال مساعدة ---
         function formatTime(seconds) {
             if (!seconds || isNaN(seconds) || seconds < 0) return '00:00';
             seconds = Math.floor(seconds);
@@ -257,8 +277,52 @@
             return String(mins).padStart(2, '0') + ':' + String(secs).padStart(2, '0');
         }
         
-        async function initPlayer() {
-            await loadYouTubeAPI();
+        function enableControls(enabled) {
+            const btns = ['playBtn', 'rewindBtn', 'forwardBtn', 'muteBtn'];
+            btns.forEach(id => {
+                document.getElementById(id).disabled = !enabled;
+            });
+            document.getElementById('volumeSlider').disabled = !enabled;
+        }
+        
+        // --- تهيئة المشغل ---
+        function initPlayer() {
+            // تحميل API يوتيوب
+            const tag = document.createElement('script');
+            tag.src = 'https://www.youtube.com/iframe_api';
+            const firstScriptTag = document.getElementsByTagName('script')[0];
+            firstScriptTag.parentNode.insertBefore(tag, firstScriptTag);
+            
+            window.onYouTubeIframeAPIReady = function() {
+                player = new YT.Player('youtubePlayer', {
+                    height: '100%',
+                    width: '100%',
+                    videoId: videoId,
+                    playerVars: {
+                        autoplay: 1,
+                        controls: 0,
+                        modestbranding: 1,
+                        rel: 0,
+                        showinfo: 0,
+                        iv_load_policy: 3,
+                        playsinline: 1,
+                        start: startTime,
+                        enablejsapi: 1,
+                        origin: window.location.origin
+                    },
+                    events: {
+                        onReady: onPlayerReady,
+                        onStateChange: onPlayerStateChange,
+                        onError: onPlayerError
+                    }
+                });
+            };
+        }
+        
+        function onPlayerReady(event) {
+            playerReady = true;
+            enableControls(true);
+            document.getElementById('loadingIndicator').style.display = 'none';
             
             // عرض الشارات
             if (startTime > 0) {
@@ -271,29 +335,7 @@
                 document.getElementById('endTimeLabel').textContent = formatTime(endTime);
             }
             
-            // إنشاء المشغل
-            player = new YT.Player('youtubePlayer', {
-                videoId: videoId,
-                playerVars: {
-                    autoplay: 1,
-                    controls: 0,
-                    modestbranding: 1,
-                    rel: 0,
-                    showinfo: 0,
-                    iv_load_policy: 3,
-                    playsinline: 1,
-                    start: startTime,
-                    enablejsapi: 1
-                },
-                events: {
-                    onReady: onPlayerReady,
-                    onStateChange: onPlayerStateChange,
-                    onError: onPlayerError
-                }
-            });
-        }
-        
-        function onPlayerReady(event) {
+            // بدء التشغيل
             if (startTime > 0) {
                 event.target.seekTo(startTime, true);
             }
@@ -302,9 +344,13 @@
             document.getElementById('playBtn').textContent = '⏸';
             
             // تحديث الوقت
+            if (timeInterval) clearInterval(timeInterval);
+            if (progressInterval) clearInterval(progressInterval);
+            timeInterval = setInterval(updateTime, 500);
+            progressInterval = setInterval(updateProgressBar, 1000);
+            
             updateTime();
-            setInterval(updateTime, 500);
-            setInterval(updateProgressBar, 1000);
+            updateProgressBar();
         }
         
         function onPlayerStateChange(event) {
@@ -329,16 +375,18 @@
         }
         
         function onPlayerError(event) {
-            console.error('خطأ:', event.data);
-            document.getElementById('timeDisplay').textContent = '⚠️ خطأ في التحميل';
+            console.error('خطأ في المشغل:', event.data);
+            document.getElementById('loadingIndicator').innerHTML = 
+                '<span style="color:#ff4444;">⚠️ خطأ في تحميل الفيديو</span>';
+            enableControls(false);
         }
         
         function updateTime() {
-            if (player && player.getCurrentTime) {
+            if (!playerReady || !player || !player.getCurrentTime) return;
+            try {
                 const current = player.getCurrentTime();
                 const duration = player.getDuration();
                 
-                // التحقق من النهاية
                 if (endTime > 0 && current >= endTime) {
                     player.pauseVideo();
                     document.getElementById('playBtn').textContent = '▶';
@@ -347,15 +395,18 @@
                     return;
                 }
                 
-                if (duration) {
+                if (duration && duration > 0) {
                     document.getElementById('timeDisplay').textContent = 
                         formatTime(current) + ' / ' + formatTime(duration);
                 }
+            } catch(e) {
+                // تجاهل الأخطاء المؤقتة
             }
         }
         
         function updateProgressBar() {
-            if (player && player.getCurrentTime && !isDragging) {
+            if (!playerReady || !player || !player.getCurrentTime || isDragging) return;
+            try {
                 const current = player.getCurrentTime();
                 const duration = player.getDuration();
                 if (duration && duration > 0) {
@@ -363,69 +414,88 @@
                     document.getElementById('progressBar').value = progress;
                     document.getElementById('currentTimeLabel').textContent = formatTime(current);
                 }
+            } catch(e) {
+                // تجاهل الأخطاء المؤقتة
             }
         }
         
-        // --- ربط الأزرار ---
-        document.getElementById('playBtn').addEventListener('click', function() {
-            if (isPlaying) {
-                player.pauseVideo();
-                this.textContent = '▶';
-                isPlaying = false;
-            } else {
-                // التحقق من النهاية
-                if (endTime > 0 && player.getCurrentTime() >= endTime) {
-                    player.seekTo(startTime || 0, true);
-                }
-                player.playVideo();
-                this.textContent = '⏸';
-                isPlaying = true;
+        // --- ربط الأزرار (مع التحقق من الجاهزية) ---
+        function safePlayerAction(action) {
+            if (!playerReady || !player) {
+                console.warn('المشغل غير جاهز بعد');
+                return;
             }
+            try {
+                action();
+            } catch(e) {
+                console.error('خطأ في تنفيذ الإجراء:', e);
+            }
+        }
+        
+        document.getElementById('playBtn').addEventListener('click', function() {
+            safePlayerAction(() => {
+                if (isPlaying) {
+                    player.pauseVideo();
+                    this.textContent = '▶';
+                    isPlaying = false;
+                } else {
+                    if (endTime > 0 && player.getCurrentTime() >= endTime) {
+                        player.seekTo(startTime || 0, true);
+                    }
+                    player.playVideo();
+                    this.textContent = '⏸';
+                    isPlaying = true;
+                }
+            });
         });
         
         document.getElementById('rewindBtn').addEventListener('click', function() {
-            if (player && player.getCurrentTime) {
+            safePlayerAction(() => {
                 let newTime = player.getCurrentTime() - 10;
                 if (newTime < (startTime || 0)) newTime = startTime || 0;
                 player.seekTo(newTime, true);
-            }
+            });
         });
         
         document.getElementById('forwardBtn').addEventListener('click', function() {
-            if (player && player.getCurrentTime) {
+            safePlayerAction(() => {
                 let newTime = player.getCurrentTime() + 10;
                 if (endTime > 0 && newTime > endTime) newTime = endTime - 0.5;
                 player.seekTo(newTime, true);
-            }
+            });
         });
         
         document.getElementById('muteBtn').addEventListener('click', function() {
-            if (isMuted) {
-                player.unMute();
-                this.textContent = '🔊';
-                isMuted = false;
-                document.getElementById('volumeSlider').value = volumeBeforeMute;
-                player.setVolume(volumeBeforeMute * 100);
-            } else {
-                volumeBeforeMute = parseFloat(document.getElementById('volumeSlider').value);
-                player.mute();
-                this.textContent = '🔇';
-                isMuted = true;
-                document.getElementById('volumeSlider').value = 0;
-            }
+            safePlayerAction(() => {
+                if (isMuted) {
+                    player.unMute();
+                    this.textContent = '🔊';
+                    isMuted = false;
+                    document.getElementById('volumeSlider').value = volumeBeforeMute;
+                    player.setVolume(volumeBeforeMute * 100);
+                } else {
+                    volumeBeforeMute = parseFloat(document.getElementById('volumeSlider').value);
+                    player.mute();
+                    this.textContent = '🔇';
+                    isMuted = true;
+                    document.getElementById('volumeSlider').value = 0;
+                }
+            });
         });
         
         document.getElementById('volumeSlider').addEventListener('input', function() {
-            const volume = parseFloat(this.value);
-            player.setVolume(volume * 100);
-            if (volume === 0) {
-                document.getElementById('muteBtn').textContent = '🔇';
-                isMuted = true;
-            } else {
-                document.getElementById('muteBtn').textContent = '🔊';
-                isMuted = false;
-                volumeBeforeMute = volume;
-            }
+            safePlayerAction(() => {
+                const volume = parseFloat(this.value);
+                player.setVolume(volume * 100);
+                if (volume === 0) {
+                    document.getElementById('muteBtn').textContent = '🔇';
+                    isMuted = true;
+                } else {
+                    document.getElementById('muteBtn').textContent = '🔊';
+                    isMuted = false;
+                    volumeBeforeMute = volume;
+                }
+            });
         });
         
         // شريط التقدم
@@ -433,26 +503,29 @@
         progressBar.addEventListener('mousedown', () => { isDragging = true; });
         progressBar.addEventListener('mouseup', function() {
             isDragging = false;
-            const value = parseFloat(this.value);
-            const duration = player.getDuration();
-            if (duration && duration > 0) {
-                let seekTime = (value / 100) * duration;
-                if (endTime > 0 && seekTime > endTime) seekTime = endTime - 0.5;
-                if (seekTime < (startTime || 0)) seekTime = startTime || 0;
-                player.seekTo(seekTime, true);
-            }
+            safePlayerAction(() => {
+                const value = parseFloat(this.value);
+                const duration = player.getDuration();
+                if (duration && duration > 0) {
+                    let seekTime = (value / 100) * duration;
+                    if (endTime > 0 && seekTime > endTime) seekTime = endTime - 0.5;
+                    if (seekTime < (startTime || 0)) seekTime = startTime || 0;
+                    player.seekTo(seekTime, true);
+                }
+            });
         });
         progressBar.addEventListener('input', function() {
-            const duration = player.getDuration();
+            const duration = playerReady && player ? player.getDuration() : 0;
             if (duration && duration > 0) {
                 const currentTime = (parseFloat(this.value) / 100) * duration;
                 document.getElementById('currentTimeLabel').textContent = formatTime(currentTime);
             }
         });
         
-        // اختصارات
+        // اختصارات لوحة المفاتيح
         document.addEventListener('keydown', function(e) {
             if (e.target.tagName === 'INPUT') return;
+            if (!playerReady) return;
             switch(e.key) {
                 case ' ':
                 case 'k':
@@ -492,14 +565,11 @@
             }, 3000);
         });
         
-        // بدء التشغيل
-        initPlayer().catch(err => {
-            console.error('خطأ في التهيئة:', err);
-            document.getElementById('timeDisplay').textContent = '⚠️ فشل التحميل';
-        });
-        
-        console.log('🎵 المشغل جاهز');
+        // --- بدء التشغيل ---
+        console.log('🎵 بدء تهيئة المشغل...');
+        console.log('📹 الفيديو:', videoId);
         console.log('⏱️ البدء:', startTime, 'النهاية:', endTime);
+        initPlayer();
     </script>
 </body>
 </html>
